@@ -33,5 +33,23 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
-  }
+  },
+  "license": "MIT",
+  "author": "Gumife",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gumife/dsh-model-radar.git"
+  },
+  "homepage": "https://github.com/Gumife/dsh-model-radar#readme",
+  "bugs": {
+    "url": "https://github.com/Gumife/dsh-model-radar/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "model",
+    "provider",
+    "llm",
+    "ui"
+  ]
 }

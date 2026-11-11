@@ -1,5 +1,10 @@
 # 模型雷达（dsh-model-radar）
 
+> **这是个人自用项目，不是通用产品。**
+> 它是我自己日常在用的工具，开源只是为了代码可读、可改、可搬零件。
+> 接口随我自己的需要变动，**不承诺向后兼容**；遇到问题欢迎提 Issue，但**不承诺响应时间**。
+> 你要用，请自己读代码、自己承担后果。
+
 在输入框下方的 `conversation.composer.dock`（以及新会话空态行的 `conversation.hero.options`）里挂一个**旁路入口**：点开是「提供方在左、模型向右展开」的目录面板，支持搜索、最近使用、推理等级切换。
 
 **两个槽都要挂，缺一个就有一段时间看不见入口。** 宿主在**新会话空态**渲染的是 hero 行，不是 composer dock 行——`conversation.composer.dock` 的渲染门槛是 `variant === "composer" && input !== undefined && sessionId !== undefined`，而新会话传的是 `variant: "hero"`，所以整行（含 activity / usage 等原生成员）都不渲染。`conversation.hero.options` 的门槛只是 `sessionId !== undefined`，且该槽今天为空。两槽互斥，不会同时出现。
@@ -8,12 +13,26 @@
 
 ## 安装
 
+需要 DeepSeek Harness，版本区间由 `package.json` 的 `engines.dsh` 声明——不满足时宿主会直接拦下并说明原因，不会装上一个跑不起来的插件。
+
+**方式一：直接从 GitHub 安装**（不用先克隆）
+
 ```powershell
-# 用绝对路径安装（不要手改 profile 的 package.json / cordis.patch.yml，也不要在 profile 目录跑 pnpm）
-plugin_manager install_bundle(target='E:\deepseek-workspace\dsh-model-radar')
+plugin_manager install_bundle(target='github:Gumife/dsh-model-radar')
 ```
 
-装完 `dsh.profile.bundles` 里会出现 `dsh-model-radar`，`node_modules/dsh-model-radar` 是指回本目录的 junction。
+**方式二：克隆到本地，再指向目录**
+
+```powershell
+git clone https://github.com/Gumife/dsh-model-radar.git
+plugin_manager install_bundle(target='<你的克隆路径>/dsh-model-radar')
+```
+
+两种方式都不要手改 profile 的 `package.json` / `cordis.patch.yml`，也不要在 profile 目录跑 pnpm。
+
+装完 `dsh.profile.bundles` 里会出现 `dsh-model-radar`，`node_modules/dsh-model-radar` 是指回安装目录的链接。卸载走 `plugin_manager` 的 `remove_bundle`，别手工删目录。
+
+`github:` 源安装锁定的是当时的 HEAD commit，升级要重新执行一次安装。
 
 **改完 `client.js` 必须整进程重启宿主才进页面，刷新页面不够。** 原因见下面「bundle 的 rev」。`index.js`（Host 半）同理。
 
@@ -198,8 +217,7 @@ plugin_manager install_bundle(target='E:\deepseek-workspace\dsh-model-radar')
 
 选模型时想知道「这个渠道还有多少分快过期」。徽标挂在**提供方行**上（不在模型行），页脚显示快照年龄 + 一颗「刷新」。
 
-**数据源是本地快照文件，不是上游。** `~/.dsh/credits-expiry/latest.json`，由
-`E:\deepseek-workspace\credits-expiry-report\report.mjs --snapshot=<该文件>` 生成（**3 天窗口**、三家齐全、包级到期）。
+**数据源是本地快照文件，不是上游。** `~/.dsh/credits-expiry/latest.json`（**3 天窗口**、三家齐全、包级到期）。这个文件由外部脚本写入，**脚本不在本仓库内**——没有它，徽标区就是空的，雷达其余功能完全不受影响。
 **这一步没有人自动帮你做**——没有计划任务、没有 schedule，快照只会在有人手动跑脚本时更新。
 所以页面上的「快照 Nh」不是装饰，它就是这个数字的可信边界。
 开面板只做一次 `stat` + 读一个小 JSON，读结果缓存 15s（`CREDITS_READ_TTL_MS`）。
