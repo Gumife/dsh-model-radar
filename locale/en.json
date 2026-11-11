@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Model Radar",
+    "description": "Adds a bypass entry point below the composer: open it to browse every model grouped by provider (providers on the left, their models flying out to the right), with search, recents, and reasoning-effort switching. The shipped composer model selector is left untouched."
+  }
+}

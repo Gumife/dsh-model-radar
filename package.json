@@ -1,0 +1,37 @@
+{
+  "name": "dsh-model-radar",
+  "version": "0.1.7",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.1-rc.1 <0.3.0-0"
+  },
+  "description": "模型雷达：在输入框下方挂一个旁路入口，按提供方分组浏览全部模型（提供方在左、模型向右展开）；不遮蔽输入框里的官方选择器",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

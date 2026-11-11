@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dsh-model-radar · 真实组件渲染</title>
+<style>
+  /* Stand-ins for the host's theme tokens. The plugin only ever writes
+     var(--dsw-*)/var(--ds-*); these are the shipped LIGHT values, lifted
+     verbatim from dsh-client-ui-theme/lib/client.js. Anything the plugin
+     references but this block omits silently falls back to nothing — an
+     undefined --dsw-elevation-prominent or --dsw-specific-menu makes the
+     popover melt into the composer card, which is a preview defect, not a
+     plugin one. Keep every token the plugin touches defined here. */
+  :root{
+    /* surfaces */
+    --dsw-alias-bg-base:#ffffff; --dsw-alias-bg-layer-1:#f6f7f9; --dsw-alias-bg-layer-2:#eceef2;
+    --dsw-alias-bg-overlay:#ffffff;
+    --dsw-menu-surface-fill:#f8f9fa94; --dsw-specific-menu:var(--dsw-menu-surface-fill);
+    --dsw-menu-backdrop-filter:blur(40px) saturate(150%);
+    /* borders */
+    --dsw-alias-border-l1:#e4e7eb; --dsw-alias-border-l2:#cbd1d9;
+    --dsw-alias-border-l3:#0000001f; --dsw-alias-border-l4:#00000029;
+    /* labels */
+    --dsw-alias-label-primary:#1b1f24; --dsw-alias-label-secondary:#6b7280;
+    --dsw-alias-label-caption:#81858c; --dsw-alias-label-tertiary:#81858c;
+    --dsw-alias-label-dimmed:#adb2b8;
+    /* fills & focus */
+    --dsw-alias-interactive-bg-hover:#2631480f;
+    --dsw-alias-brand-primary:#3b6cf6;
+    --dsw-alias-state-business-primary:#4176e6;
+    --dsw-alias-state-success-primary:#12855a; --dsw-alias-state-error-primary:#c62828;
+    --dsw-focus-ring-color:var(--dsw-alias-state-business-primary);
+    --dsw-focus-ring-width:2px;
+    /* scrollbars */
+    --dsw-alias-scrollbar-bg-l2:#e5e5e5; --dsw-alias-scrollbar-hover-l2:#d4d4d4;
+    /* elevation: stroke + three tiers */
+    --dsw-elevation-stroke-color:var(--dsw-alias-border-l4);
+    --dsw-elevation-stroke:0 0 0 .5px var(--dsw-elevation-stroke-color);
+    --dsw-elevation-soft:var(--dsw-elevation-stroke), 0 4px 16px 0 #00000008, 0 0 24px 0 #00000008;
+    --dsw-elevation-panel:var(--dsw-elevation-stroke), 0 3px 8px 0 #00000008, 0 0 16px 0 #00000005;
+    --dsw-elevation-prominent:var(--dsw-elevation-stroke), 0 3px 8px 0 #0000000a, 0 0 20px 0 #0000000d;
+    /* radii */
+    --dsw-radius-xs:4px; --dsw-radius-sm:8px; --dsw-radius-md:12px; --dsw-radius-lg:16px;
+    /* type */
+    --ds-font-family-code:"SF Mono","JetBrains Mono","Fira Code",Consolas,"Liberation Mono",Menlo,Courier,monospace;
+  }
+  html,body{margin:0;height:100%}
+  body{background:#eef1f5;font-family:"Segoe UI",system-ui,"Microsoft YaHei",sans-serif;color:#1b1f24}
+  .stage{position:relative;width:1086px;height:722px;overflow:hidden}
+
+  /* The composer card, so the pill sits where it will actually sit. */
+  .composer{position:absolute;left:16px;right:16px;bottom:16px;height:96px;border-radius:14px;
+    background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);
+    box-shadow:0 1px 3px rgba(16,24,40,.06);padding:12px 14px;box-sizing:border-box;
+    display:flex;flex-direction:column;justify-content:space-between}
+  .composer .hint{font-size:12.5px;color:var(--dsw-alias-label-secondary)}
+  .composer .toolrow{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+  .composer .spacer{flex:1}
+  .ship{display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;border-radius:7px;
+    padding:4px 9px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+  /* The real ContextMeter box: 13px font over a 20px line box plus 1px/8px
+     padding = 22px. This is the neighbour the dock pill has to match, so it is
+     modelled with the shipped numbers rather than the generic .ship look. */
+  .ship.usage{box-sizing:border-box;border:0;border-radius:var(--dsw-radius-sm);
+    padding:1px 8px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary)}
+  .ship .dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-success-primary)}
+  /* Shipped neighbours, at their real box metrics (context meter 1px 8px over a
+     20px line; credits readout 2px 6px over 18px) so the measured heights in
+     the probe are the ones the plugin actually has to line up with. */
+  #dock .mr-pill{vertical-align:middle}
+  .hero{position:absolute;left:16px;right:16px;top:16px;padding:0 4px}
+  .herorow{display:flex;align-items:center;gap:2px;
+    background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);
+    border-radius:14px;padding:10px 12px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+  .hero .hspacer{flex:1}
+  /* The shipped workspace chip: min-height 28px, 13px/20px, weight 500, padding 0 8px. */
+  .hchip{display:inline-flex;align-items:center;gap:4px;box-sizing:border-box;
+    border-radius:var(--dsw-radius-sm);min-height:28px;padding:0 8px;
+    color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:20px}
+  .hchip .hfolder,.hchip .hchev{color:var(--dsw-alias-label-caption)}
+  .probe{position:absolute;left:16px;top:120px;right:16px;font-family:"Consolas",monospace;
+    font-size:12px;line-height:19px;color:var(--dsw-alias-label-primary);
+    white-space:pre-wrap;padding:8px 10px;border-radius:var(--dsw-radius-sm);
+    background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1)}
+  
+/* flex:none is load-bearing. The dock row is display:flex with gap:12px,
+   justify-content:center, max-width:100% and NO flex-wrap, and it already
+   carries activity / usage / credits / the context meter. Every flex child
+   defaults to min-width:auto + flex-shrink:1, so without flex:none this entry
+   is the one that gets squeezed to zero width once the row is full — the
+   occupant still shows up in the Slot tree as active, but nothing paints. */
+.mr-root{position:relative;display:inline-flex;flex:none;font-size:13px;color:var(--dsw-alias-label-primary)}
+
+/* Dock pill: the bypass entry point. This row sits on a 22px baseline, not the
+   28px of the input bar above it: the shipped ContextMeter next to us is
+   padding 1px 8px over a 20px line box, and the workbuddy credits readout is
+   2px 6px over 18px — both settle at exactly 22px. An explicit 28px here stood
+   6px proud of both neighbours, and that extra height is also what made the
+   radius read as wrong (8px looks tighter on a taller box). So: 22px box,
+   radius stays --dsw-radius-sm to match the context meter in the same row,
+   no border, and the hover/expanded fill is --dsw-alias-interactive-bg-hover.
+   The label stays just "模型雷达": the shipped trigger elsewhere already names
+   the live model and effort. */
+.mr-pill{display:inline-flex;align-items:center;gap:4px;box-sizing:border-box;
+  height:22px;max-width:320px;
+  padding:0 4px 0 8px;background:0 0;border:0;border-radius:var(--dsw-radius-sm);
+  color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}
+
+/* Hero-row variant. The New Session row is NOT the composer dock row and must
+   not borrow its metrics: the shipped member of that row is the workspace chip
+   at min-height 28px, 13px/20px, font-weight 500, padding 0 8px. Rendering the
+   22px pill there would just move the same "does not match its neighbour"
+   complaint up one surface. Only geometry and weight change. */
+.mr-pill.mr-hero{height:28px;padding:0 8px;font-weight:500;color:var(--dsw-alias-label-primary)}
+.mr-pill.mr-hero .txt{font-weight:500}
+.mr-pill:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}
+.mr-pill[aria-expanded="true"]{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}
+.mr-pill:focus-visible{outline:none;box-shadow:0 0 0 var(--dsw-focus-ring-width,2px) var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary)))}
+.mr-pill .ico{flex:none;width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.4;
+  stroke-linecap:round;opacity:.9}
+.mr-pill .txt{flex:none;white-space:nowrap}
+.mr-pill .chev{flex:none;width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2;
+  color:var(--dsw-alias-label-caption,var(--dsw-alias-label-secondary));transition:transform .12s}
+.mr-pill[aria-expanded="true"] .chev{transform:rotate(180deg)}
+
+/* Seat trigger (only used when REGISTER_SEAT is flipped on). Same metrics. */
+.mr-trigger{display:inline-flex;align-items:center;gap:4px;height:28px;max-width:360px;
+  padding:0 4px 0 8px;background:0 0;border:0;border-radius:var(--dsw-radius-sm);
+  color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}
+.mr-trigger:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}
+.mr-trigger[aria-expanded="true"]{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}
+.mr-trigger .txt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mr-trigger .chev{flex:none;width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2;
+  color:var(--dsw-alias-label-caption,var(--dsw-alias-label-secondary));transition:transform .12s}
+.mr-trigger[aria-expanded="true"] .chev{transform:rotate(180deg)}
+
+/* Popover: flex column bounded by the space above the trigger (inline style).
+   Everything here is copied from the shipped model menu so the two surfaces are
+   indistinguishable: width max 420 / height max 360, 4px inset padding, no
+   border, the .5px hairline + soft shadow come from --dsw-elevation-prominent
+   (its stroke colour is pinned to border-l1 exactly as the shipped menu does),
+   and the fill/backdrop come from the shared menu-surface tokens. Never
+   hardcode a shadow or a colour here — light/dark both have to work. */
+.mr-pop{position:fixed;z-index:1100;display:flex;flex-direction:column;
+  width:420px;min-width:min(240px,calc(100vw - 32px));
+  max-width:min(420px,calc(100vw - 32px));max-height:min(360px,calc(100vh - 96px));
+  padding:4px;overflow:hidden;border:0;border-radius:var(--dsw-radius-lg);
+  background:var(--dsw-specific-menu,var(--dsw-alias-bg-overlay));
+  -webkit-backdrop-filter:var(--dsw-menu-backdrop-filter);backdrop-filter:var(--dsw-menu-backdrop-filter);
+  --dsw-elevation-stroke-color:var(--dsw-alias-border-l1);
+  box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-primary);
+  --dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
+
+.mr-search{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:2px 2px 4px}
+.mr-search input{flex:1;min-width:0;background:0 0;color:var(--dsw-alias-label-primary);
+  border:0;border-radius:var(--dsw-radius-md);padding:5px 7px;font:inherit;font-size:12px;
+  outline:none}
+.mr-search input::placeholder{color:var(--dsw-alias-label-caption,var(--dsw-alias-label-secondary))}
+.mr-search input:focus-visible{box-shadow:0 0 0 var(--dsw-focus-ring-width,2px) var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary)))}
+
+/* Body: min-height:0 is the whole fix — without it the grid rows refuse to
+   shrink, the columns never overflow, and no scrollbar ever appears. */
+.mr-cols{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:196px minmax(0,1fr);
+  overflow:hidden}
+.mr-provs,.mr-models{min-height:0;overflow-y:auto;padding:2px;overscroll-behavior:contain}
+.mr-provs{border-right:1px solid var(--dsw-alias-border-l1)}
+.mr-provs::-webkit-scrollbar,.mr-models::-webkit-scrollbar{width:9px}
+.mr-provs::-webkit-scrollbar-thumb,.mr-models::-webkit-scrollbar-thumb{
+  background:var(--dsw-alias-border-l2);border-radius:9px}
+.mr-provs::-webkit-scrollbar-track,.mr-models::-webkit-scrollbar-track{background:transparent}
+
+/* Section labels scroll with their column on purpose: two sticky headers in
+   one scroll container pin to the same top:0 and paint over each other, which
+   reads as a broken/clipped row. */
+/* Section labels use label-SECONDARY, not the caption/tertiary rung. Those are
+   #81858c on the menu surface — 3.61:1, under the 4.5:1 floor for text this
+   small. label-secondary is #6b7280 (4.70:1) and still reads a full step
+   quieter than label-primary, which is what the hierarchy needs. */
+.mr-sec{padding:7px 8px 4px;color:var(--dsw-alias-label-secondary);
+  font-size:11px;line-height:16px;letter-spacing:.06em;text-transform:uppercase}
+/* Second line of the model column header: a quieter hint, not a second title.
+   It inherits the section colour deliberately — opacity would stack alpha on
+   an already-muted token and drop it back under 4.5:1. */
+.mr-sec.sub{padding-top:0;text-transform:none;letter-spacing:0;font-size:11px}
+.mr-prov,.mr-model{display:flex;align-items:center;gap:6px;width:100%;background:none;
+  border:1px solid transparent;border-radius:var(--dsw-radius-md);min-height:34px;padding:5px 7px;
+  color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer}
+.mr-prov{font-size:13px;line-height:20px}
+.mr-prov:hover,.mr-prov.on,.mr-model:hover,.mr-model.hl{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2))}
+.mr-prov.on{border-color:var(--dsw-alias-border-l2)}
+.mr-model.cur{border-color:var(--dsw-alias-brand-primary)}
+.mr-model.hl{border-color:var(--dsw-alias-border-l2)}
+.mr-prov .n,.mr-model .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Model ids are identifiers, so they get the code face — but the shipped menu
+   renders model names in the text face, so this stays same-size (13px/18px)
+   and un-bolded; the code face alone carries the distinction. */
+.mr-model .n{font-family:var(--ds-font-family-code);font-size:13px;font-weight:400;line-height:18px}
+.mr-prov .c,.mr-model .b{color:var(--dsw-alias-label-secondary);
+  font-size:11.5px;white-space:nowrap}
+.mr-prov .c.zero{opacity:.45}
+
+/* Reasoning ladder: a filled capsule you drag, not a row of pill buttons.
+   The accent is deliberately its own colour pair rather than a theme token —
+   the ladder is the one control in this popover that should read as "live",
+   and the monochrome tokens (label-primary is pure black / pure white) would
+   make the fill indistinguishable from a progress bar. Both light and dark
+   values are declared so neither theme is an afterthought; the dark pair is
+   lifted in luminance so it does not vibrate against #2c2c2e. */
+.mr-effort{flex:0 0 auto;display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;column-gap:10px;padding:10px 10px 9px;
+  border-top:1px solid var(--dsw-alias-border-l1)}
+.mr-effort .lab{color:var(--dsw-alias-label-secondary);
+  font-size:12px;line-height:18px;white-space:nowrap}
+
+/* 22px rail: the capsule itself is 18px, and the 2px top/bottom slack is pure
+   hit area so the drag does not demand pixel accuracy. The 11px side margin is
+   the knob's radius — a knob parked at 0% or 100% sits fully inside the box. */
+.mr-rail{--mr-a:#5b6cf9;--mr-b:#7c5cf5;--mr-dot:#fff;
+  position:relative;height:22px;margin:0 11px;cursor:pointer;
+  touch-action:none;-webkit-user-select:none;user-select:none}
+@media (prefers-color-scheme:dark){
+  .mr-rail{--mr-a:#6c7bff;--mr-b:#9a72ff}
+}
+.mr-rail:focus-visible{outline:none}
+.mr-rail:focus-visible .knob{box-shadow:0 1px 3px rgba(0,0,0,.28),
+  0 0 0 var(--dsw-focus-ring-width,2px) var(--dsw-focus-ring-color,var(--mr-a))}
+
+/* The empty half has to stay visible on a dark menu: border-l1 is .06 white,
+   which a 18px capsule swallows — border-l2 (.12 / .1) is the same family one
+   step up. */
+.mr-rail .track{position:absolute;left:0;right:0;top:2px;height:18px;
+  border-radius:999px;background:var(--dsw-alias-border-l2,var(--dsw-alias-border-l1))}
+/* overflow:hidden is what lets the particles be plain absolutely-positioned
+   spans: they clip to the capsule's own rounded edge for free, so a particle
+   near the leading end never pokes past the rounded corner. */
+.mr-rail .fill{position:absolute;left:0;top:2px;height:18px;border-radius:999px;
+  overflow:hidden;pointer-events:none;
+  background:linear-gradient(90deg,var(--mr-a),var(--mr-b));
+  transition:width .16s cubic-bezier(.4,0,.2,1)}
+/* While dragging the fill must track the pointer exactly; an easing curve here
+   would make the capsule lag the knob and look broken. */
+.mr-rail.dragging .fill{transition:none}
+/* Particles drift, they are not dots. Two independent keyframe tracks (a slow
+   rise-and-fade, and a lateral sway) are combined per particle: the drift is
+   keyed to --dur and the sway to --sway, both set inline from the hash, so no
+   two particles share a rhythm and the field never pulses in unison. Duration
+   scales with --dur-mul, which the rung lowers: the harder the model is asked
+   to think, the faster the dust moves. */
+.mr-rail .p{position:absolute;border-radius:50%;background:var(--mr-dot);
+  transform:translate(-50%,-50%);
+  animation:mr-drift var(--dur,3.4s) linear infinite,
+            mr-sway calc(var(--dur,3.4s) * 1.7) ease-in-out infinite alternate;
+  animation-delay:var(--delay,0s), calc(var(--delay,0s) * -0.6);
+  will-change:transform,opacity}
+/* The rise is in PIXELS, not percentages: a percentage of a 1.4px particle
+   is ~3px, which reads as jitter rather than drift. 16px carries a particle
+   from the middle of the 18px capsule up past its top edge, where the fill's
+   overflow:hidden clips it — so the field looks like it is being swept up. */
+@keyframes mr-drift{
+  0%  {transform:translate(-50%,-50%) scale(.5);opacity:0}
+  15% {opacity:var(--o-max,.8)}
+  65% {opacity:calc(var(--o-max,.8) * .65)}
+  100%{transform:translate(-50%,calc(-50% - 16px)) scale(1.1);opacity:0}
+}
+@keyframes mr-sway{
+  from{translate:-2px 0}
+  to  {translate:2px 0}
+}
+/* Reduced motion keeps the field but freezes it: the dust still gives the
+   capsule its texture, it just stops travelling. */
+@media (prefers-reduced-motion:reduce){
+  .mr-rail .p{animation:none;opacity:var(--o-max,.5)}
+}
+.mr-rail .knob{position:absolute;top:0;width:22px;height:22px;margin-left:-11px;
+  border-radius:50%;background:#fff;pointer-events:none;
+  box-shadow:0 1px 3px rgba(0,0,0,.28);
+  transition:box-shadow .14s ease,transform .14s ease}
+.mr-rail:hover .knob{box-shadow:0 2px 6px rgba(0,0,0,.32)}
+.mr-rail.dragging .knob{transform:scale(1.06);box-shadow:0 2px 8px rgba(0,0,0,.35)}
+.mr-rail.dis{opacity:.55}
+.mr-rail.dis,.mr-rail.dis *{cursor:default}
+
+/* Current rung. min-width holds the rail's own width steady as the label
+   changes 低 → 极高; without it the whole ladder reflows on every pick. */
+.mr-effort .now{color:var(--mr-now,#5b6cf9);font-size:12px;line-height:18px;
+  font-weight:600;white-space:nowrap;min-width:2.4em;text-align:right}
+@media (prefers-color-scheme:dark){ .mr-effort .now{--mr-now:#8f9cff} }
+
+.mr-foot{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:5px 8px;border-top:1px solid var(--dsw-alias-border-l1);
+  color:var(--dsw-alias-label-secondary);
+  font-size:12px;line-height:18px;min-height:26px;white-space:nowrap;overflow:hidden}
+.mr-foot>span{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.mr-foot>span:last-child{flex:none}
+.mr-foot .err{color:var(--dsw-alias-state-error-primary)}
+.mr-foot .meta{font-family:var(--ds-font-family-code);font-size:11px}
+.mr-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  min-height:120px;padding:20px 14px;text-align:center;
+  color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+/*
+ * Credits-expiry badge. It sits between the provider name and the model count
+ * and must never push the count out of the 196px column, so it is flex:none,
+ * tabular-numeral and one token wide ("1258·3d").
+ *
+ * It is a filled pill rather than tinted text: the warning token alone measured
+ * 2.78:1 at 11.5px on the dark theme (the same trap dsh-better-display avoided
+ * with a 16% colour-mix fill), and the figure is the point of the badge — it
+ * must be legible, not decorative. Text is the primary label token, so the
+ * colour carries meaning on top of a readable number instead of replacing it.
+ */
+.mr-prov .x{flex:none;display:inline-block;padding:0 5px;border-radius:var(--dsw-radius-sm,6px);
+  font-size:12px;line-height:16px;white-space:nowrap;font-variant-numeric:tabular-nums;
+  color:var(--dsw-alias-label-primary);
+  background:color-mix(in srgb, var(--dsw-alias-state-warning-primary,#d8862c) 18%, transparent)}
+.mr-prov .x.dead{background:color-mix(in srgb, var(--dsw-alias-state-error-primary,#e5484d) 18%, transparent)}
+.mr-prov .x.quiet{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+/* Footer slot for the snapshot age + the one button allowed to reach upstream.
+   flex:0 1 auto — it takes only what its short label needs so the model meta
+   on the left keeps priority, and shrinks (with the ellipsis below) if the row
+   runs out of room. */
+.mr-foot .x{flex:0 1 auto;display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;overflow:visible}
+.mr-foot .x .lab{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--dsw-alias-label-secondary);font-size:12px}
+.mr-foot .x .lab.warn{color:var(--dsw-alias-state-warning-primary,#d8862c);font-weight:600}
+.mr-refresh{flex:none;background:0 0;border:1px solid var(--dsw-alias-border-l1);
+  border-radius:var(--dsw-radius-md);min-height:20px;padding:1px 8px;
+  color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
+.mr-refresh:hover:not(:disabled){color:var(--dsw-alias-label-primary);
+  background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2))}
+.mr-refresh:disabled{opacity:.55;cursor:default}
+
+</style></head>
+<body><div class="stage">
+  <div class="composer">
+    <div class="hint">输入消息，或按 ⌘K 打开命令面板</div>
+    <div class="toolrow">
+      <span class="ship"><span class="dot"></span>activity</span>
+      <span class="ship usage">usage</span>
+      <!-- our dock entry is injected here: pill + the open popover it owns -->
+      <div id="dock"></div>
+      <span class="spacer"></span>
+      <span class="ship">deepseek-v4.1-flash · 高</span>
+    </div>
+  </div>
+
+  <!-- New Session row. The host renders this instead of the composer dock row
+       while the session is brand new, so the entry has to exist here too, at
+       that row's own baseline. -->
+  <div class="hero">
+    <div class="herorow">
+      <span class="hchip"><span class="hfolder">▸</span>deepseek-workspace<span class="hchev">⌄</span></span>
+      <span class="hspacer"></span>
+      <div id="hero"></div>
+    </div>
+  </div>
+
+  <div id="probe" class="probe"></div>
+</div>
+<script>
+  document.getElementById('dock').innerHTML = "<div class=\"mr-root\"><style>\n/* flex:none is load-bearing. The dock row is display:flex with gap:12px,\n   justify-content:center, max-width:100% and NO flex-wrap, and it already\n   carries activity / usage / credits / the context meter. Every flex child\n   defaults to min-width:auto + flex-shrink:1, so without flex:none this entry\n   is the one that gets squeezed to zero width once the row is full — the\n   occupant still shows up in the Slot tree as active, but nothing paints. */\n.mr-root{position:relative;display:inline-flex;flex:none;font-size:13px;color:var(--dsw-alias-label-primary)}\n\n/* Dock pill: the bypass entry point. This row sits on a 22px baseline, not the\n   28px of the input bar above it: the shipped ContextMeter next to us is\n   padding 1px 8px over a 20px line box, and the workbuddy credits readout is\n   2px 6px over 18px — both settle at exactly 22px. An explicit 28px here stood\n   6px proud of both neighbours, and that extra height is also what made the\n   radius read as wrong (8px looks tighter on a taller box). So: 22px box,\n   radius stays --dsw-radius-sm to match the context meter in the same row,\n   no border, and the hover/expanded fill is --dsw-alias-interactive-bg-hover.\n   The label stays just \"模型雷达\": the shipped trigger elsewhere already names\n   the live model and effort. */\n.mr-pill{display:inline-flex;align-items:center;gap:4px;box-sizing:border-box;\n  height:22px;max-width:320px;\n  padding:0 4px 0 8px;background:0 0;border:0;border-radius:var(--dsw-radius-sm);\n  color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}\n\n/* Hero-row variant. The New Session row is NOT the composer dock row and must\n   not borrow its metrics: the shipped member of that row is the workspace chip\n   at min-height 28px, 13px/20px, font-weight 500, padding 0 8px. Rendering the\n   22px pill there would just move the same \"does not match its neighbour\"\n   complaint up one surface. Only geometry and weight change. */\n.mr-pill.mr-hero{height:28px;padding:0 8px;font-weight:500;color:var(--dsw-alias-label-primary)}\n.mr-pill.mr-hero .txt{font-weight:500}\n.mr-pill:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}\n.mr-pill[aria-expanded=\"true\"]{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}\n.mr-pill:focus-visible{outline:none;box-shadow:0 0 0 var(--dsw-focus-ring-width,2px) var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary)))}\n.mr-pill .ico{flex:none;width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.4;\n  stroke-linecap:round;opacity:.9}\n.mr-pill .txt{flex:none;white-space:nowrap}\n.mr-pill .chev{flex:none;width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2;\n  color:var(--dsw-alias-label-caption,var(--dsw-alias-label-secondary));transition:transform .12s}\n.mr-pill[aria-expanded=\"true\"] .chev{transform:rotate(180deg)}\n\n/* Seat trigger (only used when REGISTER_SEAT is flipped on). Same metrics. */\n.mr-trigger{display:inline-flex;align-items:center;gap:4px;height:28px;max-width:360px;\n  padding:0 4px 0 8px;background:0 0;border:0;border-radius:var(--dsw-radius-sm);\n  color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}\n.mr-trigger:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}\n.mr-trigger[aria-expanded=\"true\"]{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}\n.mr-trigger .txt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.mr-trigger .chev{flex:none;width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2;\n  color:var(--dsw-alias-label-caption,var(--dsw-alias-label-secondary));transition:transform .12s}\n.mr-trigger[aria-expanded=\"true\"] .chev{transform:rotate(180deg)}\n\n/* Popover: flex column bounded by the space above the trigger (inline style).\n   Everything here is copied from the shipped model menu so the two surfaces are\n   indistinguishable: width max 420 / height max 360, 4px inset padding, no\n   border, the .5px hairline + soft shadow come from --dsw-elevation-prominent\n   (its stroke colour is pinned to border-l1 exactly as the shipped menu does),\n   and the fill/backdrop come from the shared menu-surface tokens. Never\n   hardcode a shadow or a colour here — light/dark both have to work. */\n.mr-pop{position:fixed;z-index:1100;display:flex;flex-direction:column;\n  width:420px;min-width:min(240px,calc(100vw - 32px));\n  max-width:min(420px,calc(100vw - 32px));max-height:min(360px,calc(100vh - 96px));\n  padding:4px;overflow:hidden;border:0;border-radius:var(--dsw-radius-lg);\n  background:var(--dsw-specific-menu,var(--dsw-alias-bg-overlay));\n  -webkit-backdrop-filter:var(--dsw-menu-backdrop-filter);backdrop-filter:var(--dsw-menu-backdrop-filter);\n  --dsw-elevation-stroke-color:var(--dsw-alias-border-l1);\n  box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-primary);\n  --dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);\n  --dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}\n\n.mr-search{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:2px 2px 4px}\n.mr-search input{flex:1;min-width:0;background:0 0;color:var(--dsw-alias-label-primary);\n  border:0;border-radius:var(--dsw-radius-md);padding:5px 7px;font:inherit;font-size:12px;\n  outline:none}\n.mr-search input::placeholder{color:var(--dsw-alias-label-caption,var(--dsw-alias-label-secondary))}\n.mr-search input:focus-visible{box-shadow:0 0 0 var(--dsw-focus-ring-width,2px) var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary)))}\n\n/* Body: min-height:0 is the whole fix — without it the grid rows refuse to\n   shrink, the columns never overflow, and no scrollbar ever appears. */\n.mr-cols{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:196px minmax(0,1fr);\n  overflow:hidden}\n.mr-provs,.mr-models{min-height:0;overflow-y:auto;padding:2px;overscroll-behavior:contain}\n.mr-provs{border-right:1px solid var(--dsw-alias-border-l1)}\n.mr-provs::-webkit-scrollbar,.mr-models::-webkit-scrollbar{width:9px}\n.mr-provs::-webkit-scrollbar-thumb,.mr-models::-webkit-scrollbar-thumb{\n  background:var(--dsw-alias-border-l2);border-radius:9px}\n.mr-provs::-webkit-scrollbar-track,.mr-models::-webkit-scrollbar-track{background:transparent}\n\n/* Section labels scroll with their column on purpose: two sticky headers in\n   one scroll container pin to the same top:0 and paint over each other, which\n   reads as a broken/clipped row. */\n/* Section labels use label-SECONDARY, not the caption/tertiary rung. Those are\n   #81858c on the menu surface — 3.61:1, under the 4.5:1 floor for text this\n   small. label-secondary is #6b7280 (4.70:1) and still reads a full step\n   quieter than label-primary, which is what the hierarchy needs. */\n.mr-sec{padding:7px 8px 4px;color:var(--dsw-alias-label-secondary);\n  font-size:11px;line-height:16px;letter-spacing:.06em;text-transform:uppercase}\n/* Second line of the model column header: a quieter hint, not a second title.\n   It inherits the section colour deliberately — opacity would stack alpha on\n   an already-muted token and drop it back under 4.5:1. */\n.mr-sec.sub{padding-top:0;text-transform:none;letter-spacing:0;font-size:11px}\n.mr-prov,.mr-model{display:flex;align-items:center;gap:6px;width:100%;background:none;\n  border:1px solid transparent;border-radius:var(--dsw-radius-md);min-height:34px;padding:5px 7px;\n  color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer}\n.mr-prov{font-size:13px;line-height:20px}\n.mr-prov:hover,.mr-prov.on,.mr-model:hover,.mr-model.hl{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2))}\n.mr-prov.on{border-color:var(--dsw-alias-border-l2)}\n.mr-model.cur{border-color:var(--dsw-alias-brand-primary)}\n.mr-model.hl{border-color:var(--dsw-alias-border-l2)}\n.mr-prov .n,.mr-model .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n/* Model ids are identifiers, so they get the code face — but the shipped menu\n   renders model names in the text face, so this stays same-size (13px/18px)\n   and un-bolded; the code face alone carries the distinction. */\n.mr-model .n{font-family:var(--ds-font-family-code);font-size:13px;font-weight:400;line-height:18px}\n.mr-prov .c,.mr-model .b{color:var(--dsw-alias-label-secondary);\n  font-size:11.5px;white-space:nowrap}\n.mr-prov .c.zero{opacity:.45}\n\n/* Reasoning ladder: a filled capsule you drag, not a row of pill buttons.\n   The accent is deliberately its own colour pair rather than a theme token —\n   the ladder is the one control in this popover that should read as \"live\",\n   and the monochrome tokens (label-primary is pure black / pure white) would\n   make the fill indistinguishable from a progress bar. Both light and dark\n   values are declared so neither theme is an afterthought; the dark pair is\n   lifted in luminance so it does not vibrate against #2c2c2e. */\n.mr-effort{flex:0 0 auto;display:grid;grid-template-columns:auto minmax(0,1fr) auto;\n  align-items:center;column-gap:10px;padding:10px 10px 9px;\n  border-top:1px solid var(--dsw-alias-border-l1)}\n.mr-effort .lab{color:var(--dsw-alias-label-secondary);\n  font-size:12px;line-height:18px;white-space:nowrap}\n\n/* 22px rail: the capsule itself is 18px, and the 2px top/bottom slack is pure\n   hit area so the drag does not demand pixel accuracy. The 11px side margin is\n   the knob's radius — a knob parked at 0% or 100% sits fully inside the box. */\n.mr-rail{--mr-a:#5b6cf9;--mr-b:#7c5cf5;--mr-dot:#fff;\n  position:relative;height:22px;margin:0 11px;cursor:pointer;\n  touch-action:none;-webkit-user-select:none;user-select:none}\n@media (prefers-color-scheme:dark){\n  .mr-rail{--mr-a:#6c7bff;--mr-b:#9a72ff}\n}\n.mr-rail:focus-visible{outline:none}\n.mr-rail:focus-visible .knob{box-shadow:0 1px 3px rgba(0,0,0,.28),\n  0 0 0 var(--dsw-focus-ring-width,2px) var(--dsw-focus-ring-color,var(--mr-a))}\n\n/* The empty half has to stay visible on a dark menu: border-l1 is .06 white,\n   which a 18px capsule swallows — border-l2 (.12 / .1) is the same family one\n   step up. */\n.mr-rail .track{position:absolute;left:0;right:0;top:2px;height:18px;\n  border-radius:999px;background:var(--dsw-alias-border-l2,var(--dsw-alias-border-l1))}\n/* overflow:hidden is what lets the particles be plain absolutely-positioned\n   spans: they clip to the capsule's own rounded edge for free, so a particle\n   near the leading end never pokes past the rounded corner. */\n.mr-rail .fill{position:absolute;left:0;top:2px;height:18px;border-radius:999px;\n  overflow:hidden;pointer-events:none;\n  background:linear-gradient(90deg,var(--mr-a),var(--mr-b));\n  transition:width .16s cubic-bezier(.4,0,.2,1)}\n/* While dragging the fill must track the pointer exactly; an easing curve here\n   would make the capsule lag the knob and look broken. */\n.mr-rail.dragging .fill{transition:none}\n/* Particles drift, they are not dots. Two independent keyframe tracks (a slow\n   rise-and-fade, and a lateral sway) are combined per particle: the drift is\n   keyed to --dur and the sway to --sway, both set inline from the hash, so no\n   two particles share a rhythm and the field never pulses in unison. Duration\n   scales with --dur-mul, which the rung lowers: the harder the model is asked\n   to think, the faster the dust moves. */\n.mr-rail .p{position:absolute;border-radius:50%;background:var(--mr-dot);\n  transform:translate(-50%,-50%);\n  animation:mr-drift var(--dur,3.4s) linear infinite,\n            mr-sway calc(var(--dur,3.4s) * 1.7) ease-in-out infinite alternate;\n  animation-delay:var(--delay,0s), calc(var(--delay,0s) * -0.6);\n  will-change:transform,opacity}\n/* The rise is in PIXELS, not percentages: a percentage of a 1.4px particle\n   is ~3px, which reads as jitter rather than drift. 16px carries a particle\n   from the middle of the 18px capsule up past its top edge, where the fill's\n   overflow:hidden clips it — so the field looks like it is being swept up. */\n@keyframes mr-drift{\n  0%  {transform:translate(-50%,-50%) scale(.5);opacity:0}\n  15% {opacity:var(--o-max,.8)}\n  65% {opacity:calc(var(--o-max,.8) * .65)}\n  100%{transform:translate(-50%,calc(-50% - 16px)) scale(1.1);opacity:0}\n}\n@keyframes mr-sway{\n  from{translate:-2px 0}\n  to  {translate:2px 0}\n}\n/* Reduced motion keeps the field but freezes it: the dust still gives the\n   capsule its texture, it just stops travelling. */\n@media (prefers-reduced-motion:reduce){\n  .mr-rail .p{animation:none;opacity:var(--o-max,.5)}\n}\n.mr-rail .knob{position:absolute;top:0;width:22px;height:22px;margin-left:-11px;\n  border-radius:50%;background:#fff;pointer-events:none;\n  box-shadow:0 1px 3px rgba(0,0,0,.28);\n  transition:box-shadow .14s ease,transform .14s ease}\n.mr-rail:hover .knob{box-shadow:0 2px 6px rgba(0,0,0,.32)}\n.mr-rail.dragging .knob{transform:scale(1.06);box-shadow:0 2px 8px rgba(0,0,0,.35)}\n.mr-rail.dis{opacity:.55}\n.mr-rail.dis,.mr-rail.dis *{cursor:default}\n\n/* Current rung. min-width holds the rail's own width steady as the label\n   changes 低 → 极高; without it the whole ladder reflows on every pick. */\n.mr-effort .now{color:var(--mr-now,#5b6cf9);font-size:12px;line-height:18px;\n  font-weight:600;white-space:nowrap;min-width:2.4em;text-align:right}\n@media (prefers-color-scheme:dark){ .mr-effort .now{--mr-now:#8f9cff} }\n\n.mr-foot{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;\n  padding:5px 8px;border-top:1px solid var(--dsw-alias-border-l1);\n  color:var(--dsw-alias-label-secondary);\n  font-size:12px;line-height:18px;min-height:26px;white-space:nowrap;overflow:hidden}\n.mr-foot>span{overflow:hidden;text-overflow:ellipsis;min-width:0}\n.mr-foot>span:last-child{flex:none}\n.mr-foot .err{color:var(--dsw-alias-state-error-primary)}\n.mr-foot .meta{font-family:var(--ds-font-family-code);font-size:11px}\n.mr-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;\n  min-height:120px;padding:20px 14px;text-align:center;\n  color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}\n/*\n * Credits-expiry badge. It sits between the provider name and the model count\n * and must never push the count out of the 196px column, so it is flex:none,\n * tabular-numeral and one token wide (\"1258·3d\").\n *\n * It is a filled pill rather than tinted text: the warning token alone measured\n * 2.78:1 at 11.5px on the dark theme (the same trap dsh-better-display avoided\n * with a 16% colour-mix fill), and the figure is the point of the badge — it\n * must be legible, not decorative. Text is the primary label token, so the\n * colour carries meaning on top of a readable number instead of replacing it.\n */\n.mr-prov .x{flex:none;display:inline-block;padding:0 5px;border-radius:var(--dsw-radius-sm,6px);\n  font-size:12px;line-height:16px;white-space:nowrap;font-variant-numeric:tabular-nums;\n  color:var(--dsw-alias-label-primary);\n  background:color-mix(in srgb, var(--dsw-alias-state-warning-primary,#d8862c) 18%, transparent)}\n.mr-prov .x.dead{background:color-mix(in srgb, var(--dsw-alias-state-error-primary,#e5484d) 18%, transparent)}\n.mr-prov .x.quiet{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}\n/* Footer slot for the snapshot age + the one button allowed to reach upstream.\n   flex:0 1 auto — it takes only what its short label needs so the model meta\n   on the left keeps priority, and shrinks (with the ellipsis below) if the row\n   runs out of room. */\n.mr-foot .x{flex:0 1 auto;display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;overflow:visible}\n.mr-foot .x .lab{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;\n  color:var(--dsw-alias-label-secondary);font-size:12px}\n.mr-foot .x .lab.warn{color:var(--dsw-alias-state-warning-primary,#d8862c);font-weight:600}\n.mr-refresh{flex:none;background:0 0;border:1px solid var(--dsw-alias-border-l1);\n  border-radius:var(--dsw-radius-md);min-height:20px;padding:1px 8px;\n  color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}\n.mr-refresh:hover:not(:disabled){color:var(--dsw-alias-label-primary);\n  background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2))}\n.mr-refresh:disabled{opacity:.55;cursor:default}\n</style><button class=\"mr-pill\" type=\"button\" aria-expanded aria-haspopup=\"dialog\" title=\"模型雷达：按提供方分组浏览全部模型（不替换输入框里的官方选择器） — deepseek-v4.1-flash · 高\"><svg class=\"ico\" viewBox=\"0 0 16 16\" aria-hidden><circle cx=\"8\" cy=\"8\" r=\"6.4\"></circle><circle cx=\"8\" cy=\"8\" r=\"3.6\"></circle><circle cx=\"8\" cy=\"8\" r=\"1.1\" fill=\"currentColor\" stroke=\"none\"></circle><path d=\"M8 8 L12.6 3.4\"></path></svg><span class=\"txt\">模型雷达</span><svg class=\"chev\" viewBox=\"0 0 16 16\" aria-hidden><path d=\"M4 6l4 4 4-4\"></path></svg></button><div class=\"mr-pop\" role=\"dialog\" style=\"left:0;top:undefined;bottom:0;max-height:470\"><div class=\"mr-search\"><input type=\"search\" value=\"\" placeholder=\"搜索模型 / 提供方…\" autoComplete=\"off\"></div><div class=\"mr-cols\"><div class=\"mr-provs\"><div class=\"mr-sec\">最近使用</div><button type=\"button\" class=\"mr-model\" title=\"ofm/kilo-auto\"><span class=\"n\">ofm/kilo-auto</span></button><button type=\"button\" class=\"mr-model\" title=\"qoder/qfmodel\"><span class=\"n\">qoder/qfmodel</span></button><div class=\"mr-sec\">提供方</div><button type=\"button\" class=\"mr-prov on\" title=\"DeepSeek Account\"><span class=\"n\">DeepSeek Account</span><span class=\"c\">2</span></button><button type=\"button\" class=\"mr-prov\" title=\"agnes\"><span class=\"n\">agnes</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"ofm\"><span class=\"n\">ofm</span><span class=\"c\">3</span></button><button type=\"button\" class=\"mr-prov\" title=\"WorkBuddy\"><span class=\"n\">WorkBuddy</span><span class=\"x\" title=\"1258 分将在 11-11 21:41（3 天） 过期\n1：1258 分 @ 11-11 21:41\">1258·3d</span><span class=\"c\">2</span></button><button type=\"button\" class=\"mr-prov\" title=\"WorkBuddy Global\"><span class=\"n\">WorkBuddy Global</span><span class=\"x\" title=\"1000 分将在 11-09 21:41（1 天） 过期\ngiligulu9527：1000 分 @ 11-09 21:41\">1000·1d</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"Kilo Auto\"><span class=\"n\">Kilo Auto</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"Kiro\"><span class=\"n\">Kiro</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"Moonshot\"><span class=\"n\">Moonshot</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"OpenAI\"><span class=\"n\">OpenAI</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"OpenRouter\"><span class=\"n\">OpenRouter</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"Qoder\"><span class=\"n\">Qoder</span><span class=\"x quiet\" title=\"1 个账号查不到积分（凭据失效或未登录）：Gumife2\">?1</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"Siliconflow\"><span class=\"n\">Siliconflow</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"Volcengine\"><span class=\"n\">Volcengine</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"xAI\"><span class=\"n\">xAI</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"Zhipu\"><span class=\"n\">Zhipu</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"Bailian\"><span class=\"n\">Bailian</span><span class=\"c\">1</span></button><button type=\"button\" class=\"mr-prov\" title=\"MiniMax\"><span class=\"n\">MiniMax</span><span class=\"c\">1</span></button></div><div class=\"mr-models\"><div class=\"mr-sec\">DeepSeek Account</div><div class=\"mr-sec sub\">选择模型</div><button type=\"button\" class=\"mr-model cur hl\" title=\"deepseek-account/deepseek-v4.1-flash\"><span class=\"n\">deepseek-v4.1-flash</span><span class=\"b\">✓</span></button><button type=\"button\" class=\"mr-model\" title=\"deepseek-account/deepseek-v4.1\"><span class=\"n\">deepseek-v4.1</span></button></div></div><div class=\"mr-effort\"><span class=\"lab\">推理等级</span><div class=\"mr-rail\" role=\"slider\" tabIndex=\"0\" aria-label=\"推理等级\" aria-valuemin=\"0\" aria-valuemax=\"2\" aria-valuenow=\"2\" aria-valuetext=\"高\"><div class=\"track\"></div><div class=\"fill\" style=\"width:100%\"><span class=\"p\" style=\"left:10.50356111835572%;top:71.68610634340439%;width:2.4px;height:2.4px;opacity:0.3869520518088393;--dur:3.24s;--delay:-1.88s;--o-max:0.3869520518088393\"></span><span class=\"p\" style=\"left:36.05244081468845%;top:57.162335136308684%;width:1.4px;height:1.4px;opacity:0.532116140992548;--dur:2.79s;--delay:-0.98s;--o-max:0.532116140992548\"></span><span class=\"p\" style=\"left:33.4977408850682%;top:57.15603795746574%;width:1.4px;height:1.4px;opacity:0.517600800483342;--dur:3.80s;--delay:-2.99s;--o-max:0.517600800483342\"></span><span class=\"p\" style=\"left:86.78837066993583%;top:65.8111885706603%;width:1.4px;height:1.4px;opacity:0.8203884697155445;--dur:3.25s;--delay:-1.90s;--o-max:0.8203884697155445\"></span><span class=\"p\" style=\"left:51.33161985076731%;top:77.57228765854961%;width:2.4px;height:2.4px;opacity:0.6189296582429961;--dur:3.74s;--delay:-2.89s;--o-max:0.6189296582429961\"></span><span class=\"p\" style=\"left:54.05018270434812%;top:60.72216666711029%;width:1.4px;height:1.4px;opacity:0.634376038092887;--dur:2.67s;--delay:-0.74s;--o-max:0.634376038092887\"></span><span class=\"p\" style=\"left:53.85361900206772%;top:61.45067591278348%;width:1.4px;height:1.4px;opacity:0.6332591988753847;--dur:2.60s;--delay:-0.59s;--o-max:0.6332591988753847\"></span><span class=\"p\" style=\"left:54.5831843977212%;top:58.73891651222948%;width:1.4px;height:1.4px;opacity:0.637404456805234;--dur:3.58s;--delay:-2.55s;--o-max:0.637404456805234\"></span><span class=\"p\" style=\"left:54.00699174365218%;top:75.90174149321683%;width:2.4px;height:2.4px;opacity:0.6341306349071146;--dur:3.09s;--delay:-1.58s;--o-max:0.6341306349071146\"></span><span class=\"p\" style=\"left:37.24282341610524%;top:50.538308297254844%;width:1.4px;height:1.4px;opacity:0.5388796785005979;--dur:3.60s;--delay:-2.60s;--o-max:0.5388796785005979\"></span><span class=\"p\" style=\"left:84.6041229267721%;top:55.915499313996406%;width:1.4px;height:1.4px;opacity:0.8079779711748415;--dur:3.07s;--delay:-1.54s;--o-max:0.8079779711748415\"></span><span class=\"p\" style=\"left:75.4737044335925%;top:68.76408957672538%;width:1.4px;height:1.4px;opacity:0.7561005933726846;--dur:3.31s;--delay:-2.02s;--o-max:0.7561005933726846\"></span><span class=\"p\" style=\"left:21.38191258435836%;top:47.627635972821736%;width:1.4px;height:1.4px;opacity:0.44876086695658157;--dur:2.43s;--delay:-0.27s;--o-max:0.44876086695658157\"></span><span class=\"p\" style=\"left:69.81584481638856%;top:41.59972045585164%;width:1.4px;height:1.4px;opacity:0.7239536637294804;--dur:2.51s;--delay:-0.41s;--o-max:0.7239536637294804\"></span><span class=\"p\" style=\"left:62.56796819306328%;top:65.80185402510324%;width:1.4px;height:1.4px;opacity:0.6827725465514959;--dur:3.67s;--delay:-2.74s;--o-max:0.6827725465514959\"></span></div><div class=\"knob\" style=\"left:100%\"></div></div><span class=\"now\">高</span></div><div class=\"mr-foot\"><span class=\"meta\">deepseek-v4.1-flash · 128k ctx · 视觉</span><span class=\"x\"><span class=\"lab\" title=\"只读本地快照，不向上游发请求；要最新数字点右侧刷新 · 15天窗口\">快照 2h</span><button type=\"button\" class=\"mr-refresh\" title=\"跑一次报告脚本，向三家各查一轮（这是唯一会打到上游的按钮）\">刷新</button></span><span>↑↓ Enter · Esc</span></div></div></div>";
+  document.getElementById('hero').innerHTML = "<div class=\"mr-root\"><style>\n/* flex:none is load-bearing. The dock row is display:flex with gap:12px,\n   justify-content:center, max-width:100% and NO flex-wrap, and it already\n   carries activity / usage / credits / the context meter. Every flex child\n   defaults to min-width:auto + flex-shrink:1, so without flex:none this entry\n   is the one that gets squeezed to zero width once the row is full — the\n   occupant still shows up in the Slot tree as active, but nothing paints. */\n.mr-root{position:relative;display:inline-flex;flex:none;font-size:13px;color:var(--dsw-alias-label-primary)}\n\n/* Dock pill: the bypass entry point. This row sits on a 22px baseline, not the\n   28px of the input bar above it: the shipped ContextMeter next to us is\n   padding 1px 8px over a 20px line box, and the workbuddy credits readout is\n   2px 6px over 18px — both settle at exactly 22px. An explicit 28px here stood\n   6px proud of both neighbours, and that extra height is also what made the\n   radius read as wrong (8px looks tighter on a taller box). So: 22px box,\n   radius stays --dsw-radius-sm to match the context meter in the same row,\n   no border, and the hover/expanded fill is --dsw-alias-interactive-bg-hover.\n   The label stays just \"模型雷达\": the shipped trigger elsewhere already names\n   the live model and effort. */\n.mr-pill{display:inline-flex;align-items:center;gap:4px;box-sizing:border-box;\n  height:22px;max-width:320px;\n  padding:0 4px 0 8px;background:0 0;border:0;border-radius:var(--dsw-radius-sm);\n  color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}\n\n/* Hero-row variant. The New Session row is NOT the composer dock row and must\n   not borrow its metrics: the shipped member of that row is the workspace chip\n   at min-height 28px, 13px/20px, font-weight 500, padding 0 8px. Rendering the\n   22px pill there would just move the same \"does not match its neighbour\"\n   complaint up one surface. Only geometry and weight change. */\n.mr-pill.mr-hero{height:28px;padding:0 8px;font-weight:500;color:var(--dsw-alias-label-primary)}\n.mr-pill.mr-hero .txt{font-weight:500}\n.mr-pill:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}\n.mr-pill[aria-expanded=\"true\"]{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}\n.mr-pill:focus-visible{outline:none;box-shadow:0 0 0 var(--dsw-focus-ring-width,2px) var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary)))}\n.mr-pill .ico{flex:none;width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.4;\n  stroke-linecap:round;opacity:.9}\n.mr-pill .txt{flex:none;white-space:nowrap}\n.mr-pill .chev{flex:none;width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2;\n  color:var(--dsw-alias-label-caption,var(--dsw-alias-label-secondary));transition:transform .12s}\n.mr-pill[aria-expanded=\"true\"] .chev{transform:rotate(180deg)}\n\n/* Seat trigger (only used when REGISTER_SEAT is flipped on). Same metrics. */\n.mr-trigger{display:inline-flex;align-items:center;gap:4px;height:28px;max-width:360px;\n  padding:0 4px 0 8px;background:0 0;border:0;border-radius:var(--dsw-radius-sm);\n  color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}\n.mr-trigger:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}\n.mr-trigger[aria-expanded=\"true\"]{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}\n.mr-trigger .txt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.mr-trigger .chev{flex:none;width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2;\n  color:var(--dsw-alias-label-caption,var(--dsw-alias-label-secondary));transition:transform .12s}\n.mr-trigger[aria-expanded=\"true\"] .chev{transform:rotate(180deg)}\n\n/* Popover: flex column bounded by the space above the trigger (inline style).\n   Everything here is copied from the shipped model menu so the two surfaces are\n   indistinguishable: width max 420 / height max 360, 4px inset padding, no\n   border, the .5px hairline + soft shadow come from --dsw-elevation-prominent\n   (its stroke colour is pinned to border-l1 exactly as the shipped menu does),\n   and the fill/backdrop come from the shared menu-surface tokens. Never\n   hardcode a shadow or a colour here — light/dark both have to work. */\n.mr-pop{position:fixed;z-index:1100;display:flex;flex-direction:column;\n  width:420px;min-width:min(240px,calc(100vw - 32px));\n  max-width:min(420px,calc(100vw - 32px));max-height:min(360px,calc(100vh - 96px));\n  padding:4px;overflow:hidden;border:0;border-radius:var(--dsw-radius-lg);\n  background:var(--dsw-specific-menu,var(--dsw-alias-bg-overlay));\n  -webkit-backdrop-filter:var(--dsw-menu-backdrop-filter);backdrop-filter:var(--dsw-menu-backdrop-filter);\n  --dsw-elevation-stroke-color:var(--dsw-alias-border-l1);\n  box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-primary);\n  --dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);\n  --dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}\n\n.mr-search{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:2px 2px 4px}\n.mr-search input{flex:1;min-width:0;background:0 0;color:var(--dsw-alias-label-primary);\n  border:0;border-radius:var(--dsw-radius-md);padding:5px 7px;font:inherit;font-size:12px;\n  outline:none}\n.mr-search input::placeholder{color:var(--dsw-alias-label-caption,var(--dsw-alias-label-secondary))}\n.mr-search input:focus-visible{box-shadow:0 0 0 var(--dsw-focus-ring-width,2px) var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary)))}\n\n/* Body: min-height:0 is the whole fix — without it the grid rows refuse to\n   shrink, the columns never overflow, and no scrollbar ever appears. */\n.mr-cols{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:196px minmax(0,1fr);\n  overflow:hidden}\n.mr-provs,.mr-models{min-height:0;overflow-y:auto;padding:2px;overscroll-behavior:contain}\n.mr-provs{border-right:1px solid var(--dsw-alias-border-l1)}\n.mr-provs::-webkit-scrollbar,.mr-models::-webkit-scrollbar{width:9px}\n.mr-provs::-webkit-scrollbar-thumb,.mr-models::-webkit-scrollbar-thumb{\n  background:var(--dsw-alias-border-l2);border-radius:9px}\n.mr-provs::-webkit-scrollbar-track,.mr-models::-webkit-scrollbar-track{background:transparent}\n\n/* Section labels scroll with their column on purpose: two sticky headers in\n   one scroll container pin to the same top:0 and paint over each other, which\n   reads as a broken/clipped row. */\n/* Section labels use label-SECONDARY, not the caption/tertiary rung. Those are\n   #81858c on the menu surface — 3.61:1, under the 4.5:1 floor for text this\n   small. label-secondary is #6b7280 (4.70:1) and still reads a full step\n   quieter than label-primary, which is what the hierarchy needs. */\n.mr-sec{padding:7px 8px 4px;color:var(--dsw-alias-label-secondary);\n  font-size:11px;line-height:16px;letter-spacing:.06em;text-transform:uppercase}\n/* Second line of the model column header: a quieter hint, not a second title.\n   It inherits the section colour deliberately — opacity would stack alpha on\n   an already-muted token and drop it back under 4.5:1. */\n.mr-sec.sub{padding-top:0;text-transform:none;letter-spacing:0;font-size:11px}\n.mr-prov,.mr-model{display:flex;align-items:center;gap:6px;width:100%;background:none;\n  border:1px solid transparent;border-radius:var(--dsw-radius-md);min-height:34px;padding:5px 7px;\n  color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer}\n.mr-prov{font-size:13px;line-height:20px}\n.mr-prov:hover,.mr-prov.on,.mr-model:hover,.mr-model.hl{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2))}\n.mr-prov.on{border-color:var(--dsw-alias-border-l2)}\n.mr-model.cur{border-color:var(--dsw-alias-brand-primary)}\n.mr-model.hl{border-color:var(--dsw-alias-border-l2)}\n.mr-prov .n,.mr-model .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n/* Model ids are identifiers, so they get the code face — but the shipped menu\n   renders model names in the text face, so this stays same-size (13px/18px)\n   and un-bolded; the code face alone carries the distinction. */\n.mr-model .n{font-family:var(--ds-font-family-code);font-size:13px;font-weight:400;line-height:18px}\n.mr-prov .c,.mr-model .b{color:var(--dsw-alias-label-secondary);\n  font-size:11.5px;white-space:nowrap}\n.mr-prov .c.zero{opacity:.45}\n\n/* Reasoning ladder: a filled capsule you drag, not a row of pill buttons.\n   The accent is deliberately its own colour pair rather than a theme token —\n   the ladder is the one control in this popover that should read as \"live\",\n   and the monochrome tokens (label-primary is pure black / pure white) would\n   make the fill indistinguishable from a progress bar. Both light and dark\n   values are declared so neither theme is an afterthought; the dark pair is\n   lifted in luminance so it does not vibrate against #2c2c2e. */\n.mr-effort{flex:0 0 auto;display:grid;grid-template-columns:auto minmax(0,1fr) auto;\n  align-items:center;column-gap:10px;padding:10px 10px 9px;\n  border-top:1px solid var(--dsw-alias-border-l1)}\n.mr-effort .lab{color:var(--dsw-alias-label-secondary);\n  font-size:12px;line-height:18px;white-space:nowrap}\n\n/* 22px rail: the capsule itself is 18px, and the 2px top/bottom slack is pure\n   hit area so the drag does not demand pixel accuracy. The 11px side margin is\n   the knob's radius — a knob parked at 0% or 100% sits fully inside the box. */\n.mr-rail{--mr-a:#5b6cf9;--mr-b:#7c5cf5;--mr-dot:#fff;\n  position:relative;height:22px;margin:0 11px;cursor:pointer;\n  touch-action:none;-webkit-user-select:none;user-select:none}\n@media (prefers-color-scheme:dark){\n  .mr-rail{--mr-a:#6c7bff;--mr-b:#9a72ff}\n}\n.mr-rail:focus-visible{outline:none}\n.mr-rail:focus-visible .knob{box-shadow:0 1px 3px rgba(0,0,0,.28),\n  0 0 0 var(--dsw-focus-ring-width,2px) var(--dsw-focus-ring-color,var(--mr-a))}\n\n/* The empty half has to stay visible on a dark menu: border-l1 is .06 white,\n   which a 18px capsule swallows — border-l2 (.12 / .1) is the same family one\n   step up. */\n.mr-rail .track{position:absolute;left:0;right:0;top:2px;height:18px;\n  border-radius:999px;background:var(--dsw-alias-border-l2,var(--dsw-alias-border-l1))}\n/* overflow:hidden is what lets the particles be plain absolutely-positioned\n   spans: they clip to the capsule's own rounded edge for free, so a particle\n   near the leading end never pokes past the rounded corner. */\n.mr-rail .fill{position:absolute;left:0;top:2px;height:18px;border-radius:999px;\n  overflow:hidden;pointer-events:none;\n  background:linear-gradient(90deg,var(--mr-a),var(--mr-b));\n  transition:width .16s cubic-bezier(.4,0,.2,1)}\n/* While dragging the fill must track the pointer exactly; an easing curve here\n   would make the capsule lag the knob and look broken. */\n.mr-rail.dragging .fill{transition:none}\n/* Particles drift, they are not dots. Two independent keyframe tracks (a slow\n   rise-and-fade, and a lateral sway) are combined per particle: the drift is\n   keyed to --dur and the sway to --sway, both set inline from the hash, so no\n   two particles share a rhythm and the field never pulses in unison. Duration\n   scales with --dur-mul, which the rung lowers: the harder the model is asked\n   to think, the faster the dust moves. */\n.mr-rail .p{position:absolute;border-radius:50%;background:var(--mr-dot);\n  transform:translate(-50%,-50%);\n  animation:mr-drift var(--dur,3.4s) linear infinite,\n            mr-sway calc(var(--dur,3.4s) * 1.7) ease-in-out infinite alternate;\n  animation-delay:var(--delay,0s), calc(var(--delay,0s) * -0.6);\n  will-change:transform,opacity}\n/* The rise is in PIXELS, not percentages: a percentage of a 1.4px particle\n   is ~3px, which reads as jitter rather than drift. 16px carries a particle\n   from the middle of the 18px capsule up past its top edge, where the fill's\n   overflow:hidden clips it — so the field looks like it is being swept up. */\n@keyframes mr-drift{\n  0%  {transform:translate(-50%,-50%) scale(.5);opacity:0}\n  15% {opacity:var(--o-max,.8)}\n  65% {opacity:calc(var(--o-max,.8) * .65)}\n  100%{transform:translate(-50%,calc(-50% - 16px)) scale(1.1);opacity:0}\n}\n@keyframes mr-sway{\n  from{translate:-2px 0}\n  to  {translate:2px 0}\n}\n/* Reduced motion keeps the field but freezes it: the dust still gives the\n   capsule its texture, it just stops travelling. */\n@media (prefers-reduced-motion:reduce){\n  .mr-rail .p{animation:none;opacity:var(--o-max,.5)}\n}\n.mr-rail .knob{position:absolute;top:0;width:22px;height:22px;margin-left:-11px;\n  border-radius:50%;background:#fff;pointer-events:none;\n  box-shadow:0 1px 3px rgba(0,0,0,.28);\n  transition:box-shadow .14s ease,transform .14s ease}\n.mr-rail:hover .knob{box-shadow:0 2px 6px rgba(0,0,0,.32)}\n.mr-rail.dragging .knob{transform:scale(1.06);box-shadow:0 2px 8px rgba(0,0,0,.35)}\n.mr-rail.dis{opacity:.55}\n.mr-rail.dis,.mr-rail.dis *{cursor:default}\n\n/* Current rung. min-width holds the rail's own width steady as the label\n   changes 低 → 极高; without it the whole ladder reflows on every pick. */\n.mr-effort .now{color:var(--mr-now,#5b6cf9);font-size:12px;line-height:18px;\n  font-weight:600;white-space:nowrap;min-width:2.4em;text-align:right}\n@media (prefers-color-scheme:dark){ .mr-effort .now{--mr-now:#8f9cff} }\n\n.mr-foot{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;\n  padding:5px 8px;border-top:1px solid var(--dsw-alias-border-l1);\n  color:var(--dsw-alias-label-secondary);\n  font-size:12px;line-height:18px;min-height:26px;white-space:nowrap;overflow:hidden}\n.mr-foot>span{overflow:hidden;text-overflow:ellipsis;min-width:0}\n.mr-foot>span:last-child{flex:none}\n.mr-foot .err{color:var(--dsw-alias-state-error-primary)}\n.mr-foot .meta{font-family:var(--ds-font-family-code);font-size:11px}\n.mr-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;\n  min-height:120px;padding:20px 14px;text-align:center;\n  color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}\n/*\n * Credits-expiry badge. It sits between the provider name and the model count\n * and must never push the count out of the 196px column, so it is flex:none,\n * tabular-numeral and one token wide (\"1258·3d\").\n *\n * It is a filled pill rather than tinted text: the warning token alone measured\n * 2.78:1 at 11.5px on the dark theme (the same trap dsh-better-display avoided\n * with a 16% colour-mix fill), and the figure is the point of the badge — it\n * must be legible, not decorative. Text is the primary label token, so the\n * colour carries meaning on top of a readable number instead of replacing it.\n */\n.mr-prov .x{flex:none;display:inline-block;padding:0 5px;border-radius:var(--dsw-radius-sm,6px);\n  font-size:12px;line-height:16px;white-space:nowrap;font-variant-numeric:tabular-nums;\n  color:var(--dsw-alias-label-primary);\n  background:color-mix(in srgb, var(--dsw-alias-state-warning-primary,#d8862c) 18%, transparent)}\n.mr-prov .x.dead{background:color-mix(in srgb, var(--dsw-alias-state-error-primary,#e5484d) 18%, transparent)}\n.mr-prov .x.quiet{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}\n/* Footer slot for the snapshot age + the one button allowed to reach upstream.\n   flex:0 1 auto — it takes only what its short label needs so the model meta\n   on the left keeps priority, and shrinks (with the ellipsis below) if the row\n   runs out of room. */\n.mr-foot .x{flex:0 1 auto;display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;overflow:visible}\n.mr-foot .x .lab{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;\n  color:var(--dsw-alias-label-secondary);font-size:12px}\n.mr-foot .x .lab.warn{color:var(--dsw-alias-state-warning-primary,#d8862c);font-weight:600}\n.mr-refresh{flex:none;background:0 0;border:1px solid var(--dsw-alias-border-l1);\n  border-radius:var(--dsw-radius-md);min-height:20px;padding:1px 8px;\n  color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}\n.mr-refresh:hover:not(:disabled){color:var(--dsw-alias-label-primary);\n  background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2))}\n.mr-refresh:disabled{opacity:.55;cursor:default}\n</style><button class=\"mr-pill mr-hero\" type=\"button\" aria-haspopup=\"dialog\" title=\"模型雷达：按提供方分组浏览全部模型（不替换输入框里的官方选择器）\"><svg class=\"ico\" viewBox=\"0 0 16 16\" aria-hidden><circle cx=\"8\" cy=\"8\" r=\"6.4\"></circle><circle cx=\"8\" cy=\"8\" r=\"3.6\"></circle><circle cx=\"8\" cy=\"8\" r=\"1.1\" fill=\"currentColor\" stroke=\"none\"></circle><path d=\"M8 8 L12.6 3.4\"></path></svg><span class=\"txt\">模型雷达</span><svg class=\"chev\" viewBox=\"0 0 16 16\" aria-hidden><path d=\"M4 6l4 4 4-4\"></path></svg></button></div>";
+  /* The popover is position:fixed in the plugin; in this static stage we place
+     it exactly as place() would — same anchors, same flip condition, same cap —
+     so the preview cannot drift from the shipped geometry. Currently both rows
+     are above the fold's midpoint, but the dock row is the one that opens. */
+  const pop = document.querySelector('.mr-pop');
+  const dockPillEl = document.querySelector('#dock .mr-pill');
+  if (pop && dockPillEl) {
+    const r = dockPillEl.getBoundingClientRect();
+    const w = 420, GAP = 8, MARGIN = 12, MIN = 160, MAX = 360;
+    const above = r.top - GAP - MARGIN;
+    const below = innerHeight - r.bottom - GAP - MARGIN;
+    const openUp = above >= MIN || above >= below;
+    const room = openUp ? above : below;
+    pop.style.width = w + 'px';
+    pop.style.maxHeight = Math.min(MAX, Math.max(MIN, room)) + 'px';
+    pop.style.left = Math.max(MARGIN, Math.min(r.right - w, innerWidth - w - MARGIN)) + 'px';
+    if (openUp) { pop.style.bottom = (innerHeight - r.top + GAP) + 'px'; pop.style.top = ''; }
+    else { pop.style.top = (r.bottom + GAP) + 'px'; pop.style.bottom = ''; }
+  }
+  /* Self-measure. Guessing "22px should look right" is how the first version
+     shipped at 28px; this prints the boxes the reviewer is actually looking at,
+     including the two shipped neighbours each pill has to match. The placement
+     lines are the same arithmetic as usePopoverPlacement, run against the two
+     real trigger boxes, so the flip is evidenced by the page rather than by a
+     reading of the source. */
+  const box = (el) => el ? Math.round(el.getBoundingClientRect().height * 100) / 100 : null;
+  const radius = (el) => el ? getComputedStyle(el).borderTopLeftRadius : null;
+  const dockPill = document.querySelector('#dock .mr-pill');
+  const heroPill = document.querySelector('#hero .mr-pill');
+  const usage = document.querySelector('#dock').previousElementSibling;
+  const heroChip = document.querySelector('.hchip');
+  const side = (el) => {
+    const r = el.getBoundingClientRect();
+    const GAP = 8, MARGIN = 12, MIN = 160, MAX = 360;
+    const above = r.top - GAP - MARGIN;
+    const below = innerHeight - r.bottom - GAP - MARGIN;
+    const up = above >= MIN || above >= below;
+    return { up, room: Math.round(Math.min(MAX, Math.max(MIN, up ? above : below))) };
+  };
+  const dockSide = side(dockPill);
+  const heroSide = side(heroPill);
+  const lines = [
+    'dock pill     h=' + box(dockPill) + '  radius=' + radius(dockPill),
+    'usage (ship)  h=' + box(usage) + '  radius=' + radius(usage),
+    'hero pill     h=' + box(heroPill) + '  radius=' + radius(heroPill),
+    'workspace chip h=' + box(heroChip) + '  radius=' + radius(heroChip),
+    'dock popover  opens ' + (dockSide.up ? 'UP' : 'DOWN') + '  maxHeight=' + dockSide.room,
+    'hero popover  opens ' + (heroSide.up ? 'UP' : 'DOWN') + '  maxHeight=' + heroSide.room,
+  ];
+  console.log(lines.join('\n'));
+  const probe = document.getElementById('probe');
+  probe.textContent = '实测盒高（页面自测，非标注）\n' + lines.join('\n');
+  window.__MEASURED__ = { dockPill: box(dockPill), usage: box(usage), heroPill: box(heroPill), heroChip: box(heroChip) };
+</script>
+</body></html>
